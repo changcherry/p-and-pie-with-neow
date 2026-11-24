@@ -1,18 +1,192 @@
 "use client";
-import { Suspense, useState } from "react";
+
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { ShieldIcon } from "@/components/icons";
-import { scenarios, type Decision } from "@/lib/demo-data";
+import { scenarios } from "@/lib/demo-data";
 import { completeScenario } from "@/lib/cat-progress";
+import { skillDimensions, type SkillScores } from "@/lib/training-score";
 
-function Training(){const params=useSearchParams(),router=useRouter();const scenario=scenarios.find(s=>s.slug===params.get("scenario"))??scenarios[0];const[step,setStep]=useState(0);const[choice,setChoice]=useState<Decision|null>(null);const[marked,setMarked]=useState<string[]>([]);const calm=choice?(choice.safe?88:42):(step?68:82);
-  function toggleWarning(w:string){setMarked(items=>items.includes(w)?items.filter(item=>item!==w):[...items,w])}
-  function decide(d:Decision){setChoice(d);setStep(2);const catRewards=completeScenario(scenario.slug);localStorage.setItem("goodshield-result",JSON.stringify({title:scenario.title,safe:d.safe,feedback:d.feedback,warnings:scenario.warnings,marked,calm:d.safe?88:42,badge:d.safe?(scenario.slug==="romance-scam"?"情感識詐守護者":"查證守護者"):"再次練習",catRewards:catRewards.map(reward=>reward.id)}))}
+type Session = { scenarioSlug: string; title: string; conversationType: "scam" | "legitimate"; opening: string; choices: string[] };
+type Signal = { name: string; evidence: string };
+type Analysis = {
+  scenarioRiskLevel: "high" | "medium" | "low" | "insufficient_information";
+  answerRiskLevel: "high" | "medium" | "low" | "insufficient_information";
+  scenarioSignals: Signal[];
+  answerSignals: Signal[];
+  summary: string;
+  responseFeedback: string;
+  suggestedActions: string[];
+  uncertainty: string;
+  dimensionScores: SkillScores;
+  totalScore: number;
+};
+
+type ErrorStage = "start" | "reply" | "analysis";
+
+async function readPayload(response: Response) {
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || "暫時無法完成 AI 處理。");
+  return payload;
+}
+
+function Training() {
+  const params = useSearchParams();
+  const router = useRouter();
+  const scenario = scenarios.find((item) => item.slug === params.get("scenario")) ?? scenarios[0];
+  const started = useRef<string | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [selectedChoice, setSelectedChoice] = useState("");
+  const [callerReply, setCallerReply] = useState("");
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [phase, setPhase] = useState<"loading" | "choosing" | "replying" | "analyzing" | "complete" | "error">("loading");
+  const [error, setError] = useState("");
+  const [errorStage, setErrorStage] = useState<ErrorStage>("start");
+  const [rewardIds, setRewardIds] = useState<string[]>([]);
+
+  async function startSession() {
+    setPhase("loading");
+    setError("");
+    setSession(null);
+    setSelectedChoice("");
+    setCallerReply("");
+    setAnalysis(null);
+    localStorage.removeItem("goodshield-ai-analysis");
+    try {
+      const response = await fetch("/api/training-session", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "start", scenarioSlug: scenario.slug }),
+      });
+      const payload = await readPayload(response);
+      setSession(payload.session as Session);
+      setSelectedChoice("");
+      setCallerReply("");
+      setAnalysis(null);
+      setPhase("choosing");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "無法產生新情境。");
+      setErrorStage("start");
+      setPhase("error");
+    }
+  }
+
+  useEffect(() => {
+    if (started.current === scenario.slug) return;
+    started.current = scenario.slug;
+    void startSession();
+  // Only start a session when entering a scenario; retries are user-triggered.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scenario.slug]);
+
+  async function evaluate(selected: string, reply: string, earnedRewards: string[] = rewardIds) {
+    if (!session) return;
+    setPhase("analyzing");
+    setError("");
+    const turns = [
+      { speaker: "caller", text: session.opening },
+      { speaker: "user", text: selected },
+      { speaker: "caller", text: reply },
+    ];
+    try {
+      const response = await fetch("/api/risk-assessment", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scenarioTitle: scenario.title, selectedChoice: selected, turns }),
+      });
+      const payload = await readPayload(response);
+      const result = payload.analysis as Analysis;
+      setAnalysis(result);
+      setPhase("complete");
+      const safe = result.answerRiskLevel === "low";
+      const badge = result.totalScore >= 80 ? "善盾判斷佳" : result.totalScore >= 60 ? "持續練習" : "再次練習";
+      localStorage.setItem("goodshield-ai-analysis", JSON.stringify({ status: "complete", analysis: result }));
+      localStorage.setItem("goodshield-result", JSON.stringify({
+        title: scenario.title,
+        safe,
+        decisionLabel: selected,
+        feedback: result.responseFeedback,
+        warnings: result.scenarioSignals.map((signal) => signal.name),
+        marked: result.scenarioSignals.map((signal) => signal.name),
+        calm: result.dimensionScores.calmJudgment,
+        totalScore: result.totalScore,
+        scores: result.dimensionScores,
+        warningRecall: 0,
+        badge,
+        scenarioRiskLevel: result.scenarioRiskLevel,
+        answerRiskLevel: result.answerRiskLevel,
+        scenarioSignals: result.scenarioSignals,
+        answerSignals: result.answerSignals,
+        turns,
+        catRewards: earnedRewards,
+      }));
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "無法分析這段對話。";
+      setError(message);
+      setErrorStage("analysis");
+      setPhase("error");
+      localStorage.setItem("goodshield-ai-analysis", JSON.stringify({ status: "error", error: message }));
+    }
+  }
+
+  async function chooseAnswer(choice: string) {
+    if (!session) return;
+    setSelectedChoice(choice);
+    setPhase("replying");
+    setError("");
+    try {
+      const response = await fetch("/api/training-session", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reply", scenarioSlug: scenario.slug, conversationType: session.conversationType, opening: session.opening, choices: session.choices, selectedChoice: choice }),
+      });
+      const payload = await readPayload(response);
+      const reply = payload.reply as string;
+      setCallerReply(reply);
+      const rewards = completeScenario(scenario.slug).map((reward) => reward.id);
+      setRewardIds(rewards);
+      await evaluate(choice, reply, rewards);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "無法取得來話方的回覆。";
+      setError(message);
+      setErrorStage("reply");
+      setPhase("error");
+    }
+  }
+
+  const riskLabels = { high: "高風險", medium: "中度風險", low: "低風險", insufficient_information: "資訊不足" };
+  const phaseLabels = { loading: "正在產生本次來話", choosing: "閱讀來話並選擇回應", replying: "來話方正在回覆", analyzing: "AI 正在分析對話與評分", complete: "對話分析完成", error: "需要重新處理" };
+  const progressPercent = phase === "complete" ? 100 : phase === "analyzing" ? 88 : phase === "replying" ? 65 : phase === "choosing" ? 40 : phase === "loading" ? 15 : errorStage === "analysis" ? 88 : errorStage === "reply" ? 65 : 15;
+
   return <AppShell current="訓練情境"><div className="inner game-training">
-    <header className="training-mission-bar"><div><span>任務 {String(scenarios.findIndex(item=>item.slug===scenario.slug)+1).padStart(2,"0")}</span><strong>{scenario.title}</strong></div><div className="calm-meter"><span>冷靜值</span><i><b style={{width:`${calm}%`}}/></i><strong>{calm}</strong></div><button type="button" onClick={()=>router.push("/scenarios")}>離開任務</button></header>
-    <div className="training-game-layout"><aside className="mission-side"><div className="shield-status"><span><ShieldIcon/></span><div><small>善盾狀態</small><strong>{choice?(choice.safe?"完整":"需要修復"):"穩定"}</strong></div></div><ol>{["收到可疑訊息","面對施壓話術","做出安全決定","查看任務結算"].map((label,i)=><li className={step>=i?"done":""} key={label}><span>{step>i?"✓":i+1}</span>{label}</li>)}</ol><div className="warning-inventory"><div><strong>警訊收集</strong><span>{marked.length} / {scenario.warnings.length}</span></div>{scenario.warnings.map(w=><button type="button" className={marked.includes(w)?"found":""} onClick={()=>toggleWarning(w)} key={w} disabled={step===0}><i>{marked.includes(w)?"✓":"?"}</i>{marked.includes(w)?w:"尚未標記"}</button>)}</div></aside>
-      <section className="chat game-chat"><div className="chat-head"><div><strong>情境對話</strong><span>AI 會依你的決定改變話術</span></div><span>第 {Math.min(step+1,3)} 階段</span></div><div className="chat-body"><div className="speaker-label"><span>陌</span>陌生聯絡人</div><div className="bubble attacker">{scenario.opening}</div>{step>=1&&<><div className="pressure-label">對方開始施壓，請找出可疑警訊</div><div className="bubble attacker">{scenario.pressure}</div><div className="warning-actions">{scenario.warnings.map(w=><button type="button" className={marked.includes(w)?"marked":""} onClick={()=>toggleWarning(w)} key={w}>{marked.includes(w)?"已標記":"標記警訊"}：{w}</button>)}</div></>}{choice&&<><div className="bubble user">{choice.label}</div><div className="bubble attacker">{choice.reply}</div><div className={choice.safe?"inline-feedback safe":"inline-feedback danger"}><strong>{choice.safe?"善盾守住了這次風險":"善盾受到影響"}</strong><p>{choice.feedback}</p></div></>}</div><div className="decision">{step===0?<><p>你想怎麼回應？</p><button className="button button-primary" onClick={()=>setStep(1)}>繼續對話並觀察警訊</button></>:step===1?<><div className="decision-title"><p>面對催促，你要怎麼做？</p><span>已找到 {marked.length} 個警訊</span></div><div className="decision-grid">{scenario.decisions.map(d=><button key={d.label} onClick={()=>decide(d)}>{d.label}</button>)}</div></>:<button className="button button-primary" onClick={()=>router.push("/report")}>查看任務結算</button>}</div></section>
+    <header className="training-mission-bar"><div><span>情境主題</span><strong>{scenario.title}</strong></div><div className="calm-meter"><span>練習進度</span><i><b style={{ width: `${progressPercent}%` }}/></i><strong>{phase === "complete" ? "完成" : "進行中"}</strong></div><button type="button" onClick={() => router.push("/scenarios")}>離開任務</button></header>
+
+    <div className="training-game-layout"><aside className="mission-side"><div className="shield-status"><span><ShieldIcon/></span><div><small>本次流程</small><strong>{phaseLabels[phase]}</strong></div></div><ol>{["AI 產生新來話", "選擇你的回答", "來話方依回答反應", "AI 分析與評分"].map((label, index) => { const complete = phase === "complete" || (phase === "analyzing" && index < 3) || (phase === "replying" && index < 2) || (phase === "choosing" && index === 0); return <li className={complete ? "done" : ""} key={label}><span>{complete ? "✓" : index + 1}</span>{label}</li>; })}</ol><p className="training-mode-note">每次練習會產生不同的虛構對話，可能是詐騙，也可能是正常訊息。</p></aside>
+
+      <section className="chat game-chat" aria-busy={phase === "analyzing"}><div className="chat-head"><div><strong>AI 情境對話</strong><span>主題：{scenario.title} · 虛構安全練習</span></div><span>{phaseLabels[phase]}</span></div>
+        <div className="chat-body">
+          {phase === "loading" && <p>AI 正在為「{scenario.title}」產生本次來話和四個回應選項…</p>}
+          {session && <><div className="speaker-label"><span>來</span>來話方</div><div className="bubble attacker">{session.opening}</div></>}
+          {phase === "choosing" && session && <div className="generated-choice-list"><strong>你會怎麼回應？</strong>{session.choices.map((choice, index) => <button type="button" key={`${index}-${choice}`} onClick={() => void chooseAnswer(choice)}><span>{String.fromCharCode(65 + index)}</span>{choice}</button>)}</div>}
+          {selectedChoice && <><div className="speaker-label user-label"><span>我</span>你的回答</div><div className="bubble user">{selectedChoice}</div></>}
+          {callerReply && <><div className="speaker-label"><span>來</span>來話方的回覆</div><div className="bubble attacker">{callerReply}</div></>}
+          {phase === "analyzing" && <section className="analysis-progress" role="status" aria-live="polite" aria-label="AI 正在分析本次對話">
+            <div className="analysis-progress-heading"><span className="analysis-spinner" aria-hidden="true"/><div><strong>對話已結束，AI 正在分析</strong><p>請稍候，系統正在整理這段練習的風險與回饋。</p></div></div>
+            <div className="analysis-progress-track" role="progressbar" aria-label="AI 分析進度" aria-valuetext="分析進行中"><span/></div>
+            <ul><li>辨識來話中的風險訊號</li><li>評估你的回答是否安全</li><li>整理練習回饋與能力分數</li></ul>
+            <small>分析完成後會自動顯示結果，請先留在此頁面。</small>
+          </section>}
+          {analysis && <div className="dynamic-analysis"><div className="dynamic-risk-pair"><div><small>來話風險</small><strong>{riskLabels[analysis.scenarioRiskLevel]}</strong></div><div className={analysis.answerRiskLevel === "low" ? "risk-is-safe" : "risk-needs-work"}><small>你的回答風險</small><strong>{riskLabels[analysis.answerRiskLevel]}</strong></div><div><small>本次 AI 評分</small><strong>{analysis.totalScore} / 100</strong></div></div><p>{analysis.summary}</p><p className="response-feedback">{analysis.responseFeedback}</p>
+            {analysis.scenarioSignals.length > 0 && <div><strong>來話警訊</strong>{analysis.scenarioSignals.map((signal, index) => <p className="signal-line" key={`scenario-${index}`}><b>{signal.name}</b>：{signal.evidence}</p>)}</div>}
+            {analysis.answerSignals.length > 0 && <div><strong>回答中的風險</strong>{analysis.answerSignals.map((signal, index) => <p className="signal-line" key={`answer-${index}`}><b>{signal.name}</b>：{signal.evidence}</p>)}</div>}
+            {analysis.suggestedActions.length > 0 && <div><strong>下一步建議</strong><ul>{analysis.suggestedActions.map((action, index) => <li key={`${index}-${action}`}>{action}</li>)}</ul></div>}
+            <div className="dynamic-score-bars">{skillDimensions.map(({ key, label }) => <div key={key}><span>{label}</span><i><b style={{ width: `${analysis.dimensionScores[key]}%` }}/></i><strong>{analysis.dimensionScores[key]}</strong></div>)}</div>
+            <small>此為 AI 對本次模擬對話的練習評分，不代表真實防詐能力或正式案件判定。</small>
+          </div>}
+        </div>
+        {phase === "error" && <div className="decision"><p role="alert">{error}</p>{errorStage === "start" ? <button className="button button-primary" onClick={() => void startSession()}>重新產生情境</button> : errorStage === "reply" ? <button className="button button-primary" onClick={() => void chooseAnswer(selectedChoice)}>重試來話回覆</button> : <button className="button button-primary" onClick={() => callerReply && void evaluate(selectedChoice, callerReply)}>重試分析與評分</button>}</div>}
+        {phase === "complete" && <div className="decision"><button className="button button-primary" onClick={() => router.push("/report")}>查看完整任務報告</button></div>}
+      </section>
     </div>
-  </div></AppShell>}
-export default function Page(){return <Suspense><Training/></Suspense>}
+  </div></AppShell>;
+}
+
+export default function Page() { return <Suspense><Training/></Suspense>; }

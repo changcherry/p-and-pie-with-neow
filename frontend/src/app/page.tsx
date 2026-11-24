@@ -9,7 +9,7 @@ export default function Home() {
       <div className="hero-copy">
         <div className="hero-kicker"><span>AI 實境陪練</span><span>4 種常見情境</span></div>
         <h1>長者防詐<br/>實境陪練平台</h1>
-        <p className="lead">AI 依你的選擇改變話術。練習查證、拒絕與求助，在安全環境中建立面對詐騙的判斷力。</p>
+        <p className="lead">AI 生成可能是詐騙或正常的來話，並依你的回答延續對話、分析風險與評分。</p>
         <div className="actions"><Link className="button button-primary" href="/scenarios">開始防詐訓練 <span aria-hidden="true">→</span></Link><Link className="button button-secondary" href="/history">查看成長紀錄</Link></div>
         <p className="fact"><ShieldIcon/> 正式分數由固定規則計算，AI 不會自行決定分數。</p>
       </div>
@@ -33,7 +33,7 @@ export default function Home() {
       <div className="cards scenario-cards">{scenarios.map((scenario,index)=><Link className="card scenario-card" href={`/training?scenario=${scenario.slug}`} key={scenario.slug}><div className="card-top" data-visual><span className="scenario-index">0{index+1}</span><span className={`symbol ${scenario.tone}`}>{scenario.symbol}</span></div><small>{scenario.difficulty}</small><h3>{scenario.title}</h3><p>{scenario.description}</p><span className="card-action">開始這項訓練 <b aria-hidden="true">→</b></span></Link>)}</div>
     </section>
     <section className="method-section section">
-      <div className="method-copy"><p className="eyebrow">練習留下能力</p><h2>每一次決定，都有清楚依據</h2><p>系統記錄你辨識到的警訊與做出的關鍵決策，再用固定規則計算六項能力。AI 只負責把建議說得更容易理解。</p><Link className="button button-secondary" href="/report">查看能力報告</Link></div>
+      <div className="method-copy"><p className="eyebrow">練習留下能力</p><h2>每一次決定，都有清楚依據</h2><p>AI 依本次完整對話分析來話風險、回答風險與六項能力，並列出警訊證據和安全建議。</p><Link className="button button-secondary" href="/report">查看能力報告</Link></div>
       <div className="ability-panel" data-visual><div className="ability-head"><div><small>本次總分</small><strong>82</strong></div><span>假親友借錢</span></div><div className="ability-bars">{[["風險辨識",86],["冷靜判斷",78],["個資保護",92],["查證能力",84],["拒絕能力",76],["求助能力",74]].map(([label,value])=><div className="ability-row" key={label}><span>{label}</span><i><b style={{width:`${value}%`}}/></i><strong>{value}</strong></div>)}</div><div className="ability-note"><ShieldIcon/><span><strong>沒有提供個人資料</strong><small>你成功避開一項高風險行為</small></span></div></div>
     </section>
   </AppShell>;

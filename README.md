@@ -22,4 +22,8 @@ npm run dev
 
 開啟 <http://localhost:3000>，守護貓頁面位於 <http://localhost:3000/guardian-cat>。
 
-目前答題與解鎖進度儲存在瀏覽器 `localStorage`。正式認證、資料庫與 AI 串接尚未加入。
+訓練進度與最新報告儲存在瀏覽器 `localStorage`。正式認證與資料庫尚未加入。AI 路由採 OpenAI Chat Completions 相容格式。設定時將 `frontend/env.example` 複製成 `frontend/.env.local`，填入模型服務網址、私密 API key 與模型名稱，再重新啟動前端。API key 只在伺服器端使用；未設定或模型服務無法使用時，動態訓練會顯示錯誤並提供重試。
+
+## 訓練評分
+
+每次訓練會依選定主題生成新的虛構來話與四個回答選項；使用者選擇後，模型生成來話方回覆，再分析完整對話。模型分開評估來話風險與使用者回答風險，並依對話證據為六項能力評分；伺服器驗證分數範圍後計算六項平均作為總分。這是 AI 輔助的練習原型，不代表經實證驗證的防詐能力測驗。安全限制與資料欄位見 `frontend/src/app/api/training-session/route.ts` 和 `frontend/src/app/api/risk-assessment/route.ts`。

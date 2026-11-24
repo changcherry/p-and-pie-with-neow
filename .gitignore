@@ -6,6 +6,8 @@ frontend/node_modules/
 **/.next/
 **/dist/
 *.tsbuildinfo
+.env*
+!.env.example
 backend/.env
 backend/vendor/
 backend/storage/logs/*.log
