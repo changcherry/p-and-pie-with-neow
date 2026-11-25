@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Image from "next/image";
 import { AppShell } from "@/components/app-shell";
 import { ShieldIcon } from "@/components/icons";
 import { scenarios } from "@/lib/demo-data";
@@ -169,8 +170,8 @@ function Training() {
           {selectedChoice && <><div className="speaker-label user-label"><span>我</span>你的回答</div><div className="bubble user">{selectedChoice}</div></>}
           {callerReply && <><div className="speaker-label"><span>來</span>來話方的回覆</div><div className="bubble attacker">{callerReply}</div></>}
           {phase === "analyzing" && <section className="analysis-progress" role="status" aria-live="polite" aria-label="AI 正在分析本次對話">
-            <div className="analysis-progress-heading"><span className="analysis-spinner" aria-hidden="true"/><div><strong>對話已結束，AI 正在分析</strong><p>請稍候，系統正在整理這段練習的風險與回饋。</p></div></div>
-            <div className="analysis-progress-track" role="progressbar" aria-label="AI 分析進度" aria-valuetext="分析進行中"><span/></div>
+            <div className="analysis-progress-heading"><span className="analysis-cat" aria-hidden="true"><Image className="analysis-cat-frame" src="/brand/waiting-cat-1.png" alt="" width={72} height={72}/><Image className="analysis-cat-frame" src="/brand/waiting-cat-2.png" alt="" width={72} height={72}/><Image className="analysis-cat-frame" src="/brand/waiting-cat-3.png" alt="" width={72} height={72}/></span><div><strong>對話已結束，AI 正在分析</strong><p>請稍候，系統正在整理這段練習的風險與回饋。</p></div></div>
+            <div className="analysis-progress-track" role="progressbar" aria-label="AI 分析進度" aria-valuetext="分析進行中"><span className="analysis-progress-fill"/><span className="analysis-fish" aria-hidden="true"><Image src="/brand/loading-fish.png" alt="" width={84} height={49}/></span></div>
             <ul><li>辨識來話中的風險訊號</li><li>評估你的回答是否安全</li><li>整理練習回饋與能力分數</li></ul>
             <small>分析完成後會自動顯示結果，請先留在此頁面。</small>
           </section>}
