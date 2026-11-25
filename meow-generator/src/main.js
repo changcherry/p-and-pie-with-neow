@@ -395,11 +395,32 @@ const FLOOR_PALETTES = [
   { baseColor: '#e1d0a4', seamColor: '#716047', grainColor: '#9a835b' },
   { baseColor: '#c58c6b', seamColor: '#664636', grainColor: '#925f49' },
 ];
+const FLOOR_PRESETS = [
+  { id: 'warm', name: '暖木', swatch: '#d9b77f', ...FLOOR_PALETTES[0], plankWidth: 0.82, grainDensity: 0.72, direction: 8 },
+  { id: 'rose', name: '玫瑰木', swatch: '#e4b49e', ...FLOOR_PALETTES[1], plankWidth: 0.68, grainDensity: 0.48, direction: 0 },
+  { id: 'sakura', name: '櫻花木', swatch: '#e8c7bd', ...FLOOR_PALETTES[2], plankWidth: 0.74, grainDensity: 0.6, direction: 15 },
+  { id: 'sage', name: '鼠尾草', swatch: '#becbad', ...FLOOR_PALETTES[3], plankWidth: 1.05, grainDensity: 0.9, direction: 90 },
+  { id: 'mist', name: '霧藍', swatch: '#b8c9ca', ...FLOOR_PALETTES[4], plankWidth: 0.56, grainDensity: 0.58, direction: 45 },
+  { id: 'lavender', name: '薰衣草', swatch: '#c9bfd5', ...FLOOR_PALETTES[5], plankWidth: 0.9, grainDensity: 0.66, direction: 135 },
+  { id: 'cream', name: '奶油橡木', swatch: '#e1d0a4', ...FLOOR_PALETTES[6], plankWidth: 1.18, grainDensity: 0.42, direction: 0 },
+  { id: 'walnut', name: '深胡桃', swatch: '#c58c6b', ...FLOOR_PALETTES[7], plankWidth: 0.64, grainDensity: 1.05, direction: 90 },
+];
 const floorColorSyncs = [];
 const floorSliderSyncs = [];
+let floorPresetId = localStorage.getItem('goodshield-floor-preset-v2') || 'warm';
+if (!FLOOR_PRESETS.some((preset) => preset.id === floorPresetId)) floorPresetId = 'warm';
+Object.assign(floorParams, FLOOR_PRESETS.find((preset) => preset.id === floorPresetId));
 let floorPaletteSeed = null;
 
 function syncFloorPaletteToSeed(seed) {
+  if (floorPresetId) {
+    if (floorPaletteSeed === seed) return false;
+    floorPaletteSeed = seed;
+    const preset = FLOOR_PRESETS.find((item) => item.id === floorPresetId) ?? FLOOR_PRESETS[0];
+    Object.assign(floorParams, preset);
+    drawWoodFloor();
+    return true;
+  }
   if (floorPaletteSeed === seed) return false;
   floorPaletteSeed = seed;
   const rng = createRng((seed ^ 0x4f19b6d3) >>> 0);
@@ -417,6 +438,17 @@ function randomizeWoodFloor() {
     direction: Math.round(rng.range(0, 180)),
   });
   // 保留這次獨立隨機的配色，避免同一只貓後續重建時又被 seed 配色覆蓋。
+  floorPaletteSeed = params.seed;
+  drawWoodFloor();
+  floorColorSyncs.forEach((control) => control.sync());
+  floorSliderSyncs.forEach((control) => control.sync());
+}
+
+function applyFloorPreset(id) {
+  const preset = FLOOR_PRESETS.find((item) => item.id === id) ?? FLOOR_PRESETS[0];
+  floorPresetId = preset.id;
+  localStorage.setItem('goodshield-floor-preset-v2', floorPresetId);
+  Object.assign(floorParams, preset);
   floorPaletteSeed = params.seed;
   drawWoodFloor();
   floorColorSyncs.forEach((control) => control.sync());
@@ -548,10 +580,20 @@ ground.rotation.x = -Math.PI / 2;
 scene.add(ground);
 
 // 貓與木地板之間的程序化地毯：款式和配色由 seed 穩定決定。
+const RUG_PRESETS = [
+  { id: 7, name: '披薩圓氈' },
+  { id: 5, name: '棋盤方氈' },
+  { id: 4, name: '條紋長氈' },
+  { id: 1, name: '圓心花氈' },
+  { id: 2, name: '野餐格方氈' },
+  { id: 3, name: '彩點長氈' },
+  { id: 22, name: '太陽放射圓氈' },
+];
+const savedRugPreset = Number(localStorage.getItem('goodshield-rug-preset'));
 const rugLayer = createRugLayer(scene);
 const rugState = {
   enabled: true,
-  seed: params.seed,
+  seed: RUG_PRESETS.some((preset) => preset.id === savedRugPreset) ? savedRugPreset : RUG_PRESETS[0].id,
 };
 
 // 影子底色：完整承接投影，避免只有排線時貓腳下出現視覺空洞
@@ -2145,44 +2187,17 @@ toggleRow(rugSec, '顯示墊子', {
     syncRugPlacement();
   },
 });
-actionButton(rugSec, '隨機墊子', () => {
-  rugState.seed = randomSeed();
+refreshers.push(chipGroup(rugSec, RUG_PRESETS, () => rugState.seed, (seed) => {
+  rugState.seed = Number(seed);
+  localStorage.setItem('goodshield-rug-preset', String(rugState.seed));
   rugLayer.setSeed(rugState.seed);
   rugLayer.fitToCat(cat);
   syncRugPlacement();
-});
+}));
 
 // —— 木地板：程序化 CanvasTexture，全部參數實時重繪 ——
 const floorSec = controlGroup(sceneSec, '木地板');
-actionButton(floorSec, '隨機木地板', randomizeWoodFloor);
-const floorBaseColorControl = colorRow(floorSec, '木板底色', {
-  get: () => floorParams.baseColor,
-  set: (value) => { floorParams.baseColor = value; drawWoodFloor(); },
-});
-const floorSeamColorControl = colorRow(floorSec, '縫隙顏色', {
-  get: () => floorParams.seamColor,
-  set: (value) => { floorParams.seamColor = value; drawWoodFloor(); },
-});
-const floorGrainColorControl = colorRow(floorSec, '木紋顏色', {
-  get: () => floorParams.grainColor,
-  set: (value) => { floorParams.grainColor = value; drawWoodFloor(); },
-});
-floorColorSyncs.push(floorBaseColorControl, floorSeamColorControl, floorGrainColorControl);
-floorSliderSyncs.push(sliderRow(floorSec, '木板寬度', {
-  min: 0.35, max: 1.6, step: 0.01,
-  get: () => floorParams.plankWidth,
-  set: (value) => { floorParams.plankWidth = value; drawWoodFloor(); },
-}));
-floorSliderSyncs.push(sliderRow(floorSec, '木紋密度', {
-  min: 0, max: 1.5, step: 0.01,
-  get: () => floorParams.grainDensity,
-  set: (value) => { floorParams.grainDensity = value; drawWoodFloor(); },
-}));
-floorSliderSyncs.push(sliderRow(floorSec, '地板方向', {
-  min: 0, max: 180, step: 1,
-  get: () => floorParams.direction,
-  set: (value) => { floorParams.direction = value; drawWoodFloor(); },
-}));
+refreshers.push(chipGroup(floorSec, FLOOR_PRESETS, () => floorPresetId, applyFloorPreset));
 
 // —— 排線參數組：影子（uHatch*）和身上（uBody*）各一套，UI 結構相同 ——
 // 平行線與虛線共享粗細、密度、抖動和傾斜；切換時只改變連續/斷續樣式。
@@ -2637,7 +2652,6 @@ setWeather('sunny');
 function randomizeAll() {
   const randomizeStartedAt = performance.now();
   params.seed = randomSeed();
-  rugState.seed = params.seed;
   const rng = createRng(params.seed);
   params.containerSeed = Math.floor(rng.range(0, 1e9));
   const nextPose = rng.pick(POSES).id;

@@ -1,15 +1,50 @@
 "use client";
+
 import { useRef, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { catRewards, readCatProgress, type CatProgress } from "@/lib/cat-progress";
-type MeowWindow=Window&{__setParams?:(patch:Record<string,unknown>)=>void;__setAnimation?:(patch:Record<string,unknown>)=>void};
-export default function GuardianCatPage(){
- const[progress]=useState<CatProgress>(()=>readCatProgress()),[selected,setSelected]=useState("orange"),[ready,setReady]=useState(false);const studio=useRef<HTMLIFrameElement>(null);const completed=progress.completedScenarios.length,unlocked=catRewards.filter(r=>r.required<=completed);
- function prepare(){const doc=studio.current?.contentDocument;if(!doc)return;doc.documentElement.lang="zh-Hant";const style=doc.createElement("style");style.textContent="#initial-loader,#panel,#scene-tools,#viewport-quick-settings,#viewport-hint{display:none!important}#app{grid-template-columns:1fr!important}#viewport{width:100%!important;height:100dvh!important;min-height:100dvh!important}body{overflow:hidden!important}";doc.head.appendChild(style);const pairs:Record<string,string>={猫:"貓",开:"開",关:"關",这:"這",个:"個",发:"發",现:"現",边:"邊",后:"後",里:"裡",与:"與",为:"為",动:"動",画:"畫",场:"場",调:"調",参数:"參數",随机:"隨機",遇见:"遇見",导出:"匯出",带走:"帶走",天气:"天氣",阴:"陰",云:"雲",鱼:"魚",纹:"紋",颜色:"顏色",蓝:"藍",狸花:"虎斑",奶牛:"賓士",暹罗:"暹羅",拖拽:"拖曳",缩放:"縮放",双指:"雙指",准备:"準備",马上:"馬上",展开:"展開",关闭:"關閉",身体:"身體",头:"頭",圆润:"圓潤",腿长:"腿長",长度:"長度",卷曲:"捲曲",毛发:"毛髮",伸懒腰:"伸懶腰",双足:"雙足",侧卧:"側臥",黑猫:"黑貓",白猫:"白貓",音乐:"音樂",光照:"光線",打雷:"雷雨"};const translate=(value:string)=>{for(const[from,to]of Object.entries(pairs))value=value.split(from).join(to);return value};const convert=(root:Node)=>{const filter=doc.defaultView?.NodeFilter.SHOW_TEXT??4,walker=doc.createTreeWalker(root,filter);let node;while((node=walker.nextNode()))node.nodeValue=translate(node.nodeValue??"");if(root instanceof Element)for(const element of [root,...Array.from(root.querySelectorAll("*"))])for(const attr of["aria-label","title","alt"])if(element.hasAttribute(attr))element.setAttribute(attr,translate(element.getAttribute(attr)??""))};convert(doc.body);new MutationObserver(records=>records.forEach(record=>{if(record.type==="characterData")convert(record.target);record.addedNodes.forEach(convert)})).observe(doc.body,{childList:true,characterData:true,subtree:true});doc.defaultView?.setInterval(()=>convert(doc.body),500);setReady(true)}
- function equip(id:string){const meow=studio.current?.contentWindow as MeowWindow|null;if(!meow)return;if(id==="orange")meow.__setParams?.({coatId:"orange",pose:"stretch",motionDebug:false});if(id==="stretch")meow.__setParams?.({pose:"stretch",motionDebug:false});if(id==="tabby")meow.__setParams?.({coatId:"greyTabby",motionDebug:false});if(id==="play")meow.__setAnimation?.({enabled:true,stateMachine:false,action:"play",restart:true});if(id==="tuxedo-run"){meow.__setParams?.({coatId:"tuxedo"});meow.__setAnimation?.({enabled:true,stateMachine:false,action:"run",restart:true})}setSelected(id)}
- return <AppShell current="守護貓"><div className="inner guardian-cat-page">
-  <header className="guardian-cat-head" data-enter><div><p className="eyebrow">善盾守護夥伴</p><h1>我的守護貓</h1><p>每完成一個不同的防詐情境，就能獲得新的花色、姿勢或動作。目前完成 {completed} / 4 個情境。</p></div><div className="cat-progress-ring" style={{"--cat-progress":`${Math.max(8,completed/4*100)}%`} as React.CSSProperties}><strong>{unlocked.length}</strong><span>已解鎖</span></div></header>
-  <section className="cat-studio-shell integrated" aria-labelledby="cat-studio-title"><div className="cat-studio-copy"><p className="eyebrow">守護貓控制台</p><h2 id="cat-studio-title">選擇已獲得的能力</h2><p>訓練進度會直接控制右側小貓。選擇花色、姿勢或動作，不需要進入另一套系統。</p><div className="cat-equipped-list">{catRewards.map(r=>{const open=r.required<=completed;return <button type="button" disabled={!open||!ready} aria-pressed={selected===r.id} onClick={()=>equip(r.id)} key={r.id}><i style={{background:r.swatch}}/><span><small>{r.type}</small><strong>{r.name}</strong></span><b>{open?(selected===r.id?"使用中":"套用"):`完成 ${r.required} 題`}</b></button>})}</div></div><iframe ref={studio} onLoad={prepare} className="cat-studio-frame" src="/meow-generator/index.html" title="善盾 AI 3D 守護貓"/></section>
-  <section className="cat-reward-section" aria-labelledby="reward-title"><div className="cat-reward-heading"><div><p className="eyebrow">解鎖收藏</p><h2 id="reward-title">守護貓造型與動作</h2></div><p>重複練習不會灌水；完成不同情境才會增加進度。</p></div><div className="cat-reward-grid">{catRewards.map(r=>{const open=r.required<=completed;return <article className={`cat-reward-card ${open?"unlocked":"locked"}`} key={r.id}><div className="cat-reward-swatch" style={{background:r.swatch}}><span>{open?"✓":"🔒"}</span></div><div><small>{r.type} · {r.required===0?"初始獎勵":`完成 ${r.required} 題`}</small><h3>{r.name}</h3><p>{r.description}</p></div></article>})}</div></section>
-  <p className="cat-license-note">3D 小貓系統源自 Meow Generator，依 PolyForm Noncommercial 1.0.0 授權使用。Copyright 2026 Simon Lee and Ring Hyacinth.</p>
- </div></AppShell>}
+
+const rewardControlLabels: Record<string, string[]> = {
+  stretch: ["伸懶腰"], tabby: ["灰虎斑"], play: ["Motion", "動作"], "tuxedo-run": ["賓士貓"],
+};
+
+export default function GuardianCatPage() {
+  const [progress] = useState<CatProgress>(() => readCatProgress());
+  const studio = useRef<HTMLIFrameElement>(null);
+  const completed = progress.completedScenarios.length;
+  const unlocked = catRewards.filter((reward) => reward.required <= completed);
+
+  function prepareStudio() {
+    const doc = studio.current?.contentDocument;
+    if (!doc) return;
+    doc.documentElement.lang = "zh-Hant-TW";
+    doc.documentElement.dataset.locale = "zh-TW";
+    const traditionalChineseButton = doc.querySelector<HTMLButtonElement>('[data-locale="zh-TW"]');
+    if (traditionalChineseButton && traditionalChineseButton.getAttribute("aria-pressed") !== "true") {
+      traditionalChineseButton.click();
+    }
+    const style = doc.createElement("style");
+    style.dataset.goodshield = "locks";
+    style.textContent = `.panel-actions{display:none!important}.goodshield-locked-control{opacity:.38!important;filter:grayscale(.7)!important;cursor:not-allowed!important;pointer-events:none!important}`;
+    doc.head.appendChild(style);
+    const controls = Array.from(doc.querySelectorAll<HTMLElement>("button, [role='button'], label"));
+    for (const reward of catRewards) {
+      if (reward.required <= completed || reward.required === 0) continue;
+      const labels = rewardControlLabels[reward.id] ?? [];
+      for (const control of controls) {
+        const text = `${control.textContent ?? ""} ${control.getAttribute("aria-label") ?? ""}`;
+        if (!labels.some((label) => text.includes(label))) continue;
+        control.classList.add("goodshield-locked-control");
+        control.setAttribute("aria-disabled", "true");
+        control.setAttribute("title", `完成 ${reward.required} 個不同情境後解鎖`);
+        if (control instanceof HTMLButtonElement) control.disabled = true;
+      }
+    }
+  }
+
+  return <AppShell current="守護貓"><div className="guardian-meow-page">
+    <section className="guardian-meow-bar" aria-label="守護貓進度"><div><p className="eyebrow">善盾守護貓</p><strong>完成防詐任務，開放更多造型與動作</strong></div><div className="guardian-meow-progress"><span>已完成 <b>{completed} / 4</b> 個情境</span><small>{unlocked.length} / {catRewards.length} 項獎勵</small><i aria-hidden="true"><b style={{ width: `${Math.min(100, completed / 4 * 100)}%` }} /></i></div></section>
+    <iframe ref={studio} onLoad={prepareStudio} className="guardian-meow-frame" src="/meow-generator/index.html" title="善盾 AI 3D 守護貓互動工作室" />
+    <p className="guardian-meow-license">3D 小貓系統源自 Meow Generator，依 PolyForm Noncommercial 1.0.0 授權使用。Copyright 2026 Simon Lee and Ring Hyacinth.</p>
+  </div></AppShell>;
+}

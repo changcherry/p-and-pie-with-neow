@@ -9,6 +9,44 @@
   <meta property="og:title" content="Meow Generator" />
   <meta property="og:description" content="Create, customize, animate, and capture your own procedural 3D kitten." />
   <title>Meow Generator</title>
+  <style>
+    .panel-actions,.panel-footer{display:none!important}
+    .goodshield-locked-control{opacity:.36!important;filter:grayscale(.75)!important;cursor:not-allowed!important;pointer-events:none!important}
+  </style>
+  <script type="module">
+    const applyGoodshieldRules = () => {
+      let completed = 0;
+      try {
+        const progress = JSON.parse(localStorage.getItem('goodshield-cat-progress') || '{}');
+        completed = Array.isArray(progress.completedScenarios) ? Math.min(4, progress.completedScenarios.length) : 0;
+      } catch {}
+      const lockAfterTwo = (controls) => {
+        const locked = controls.slice(2);
+        locked.forEach((control, index) => {
+          const required = Math.min(4, Math.max(1, Math.ceil(((index + 1) * 4) / locked.length)));
+          if (completed >= required) return;
+          control.classList.add('goodshield-locked-control');
+          control.setAttribute('aria-disabled', 'true');
+          control.setAttribute('title', `完成 ${required} 個不同防詐情境後解鎖`);
+          if ('disabled' in control) control.disabled = true;
+        });
+      };
+      const poseControls = [...document.querySelectorAll('.pose-static-controls .chip')];
+      const appearanceSection = [...document.querySelectorAll('#controls > .section')].find((section) => section.querySelector('.section-title')?.textContent?.trim() === '花紋與眼睛');
+      appearanceSection?.querySelectorAll('details').forEach((details) => {
+        const label = details.querySelector(':scope > summary')?.textContent?.trim();
+        if (label === '自訂花色' || label === '眼睛') details.remove();
+      });
+      lockAfterTwo(poseControls);
+      lockAfterTwo(appearanceSection ? [...appearanceSection.querySelectorAll('button, input, select')] : []);
+      const removedSceneGroups = new Set(['線條', '捏貓', '地面影子', '身上陰影']);
+      document.querySelectorAll('#controls details').forEach((details) => {
+        const label = details.querySelector(':scope > summary')?.textContent?.trim();
+        if (label && removedSceneGroups.has(label)) details.remove();
+      });
+    };
+    window.addEventListener('DOMContentLoaded', () => requestAnimationFrame(() => requestAnimationFrame(applyGoodshieldRules)));
+  </script>
   <link
     rel="preload"
     href="/src/assets/loading/cat-can-transparent.png"

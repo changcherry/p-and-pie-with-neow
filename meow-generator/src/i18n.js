@@ -357,7 +357,8 @@ export function initI18n() {
     }
     translating = false;
   });
-  observer.observe(document.body, {
+  const translationRoot = document.body ?? document.documentElement;
+  observer.observe(translationRoot, {
     childList: true,
     subtree: true,
     characterData: true,
