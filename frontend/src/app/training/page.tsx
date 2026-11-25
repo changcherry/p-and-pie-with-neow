@@ -10,6 +10,7 @@ import { completeScenario } from "@/lib/cat-progress";
 import { skillDimensions, type SkillScores } from "@/lib/training-score";
 
 type Session = { scenarioSlug: string; title: string; conversationType: "scam" | "legitimate"; opening: string; choices: string[] };
+type Turn = { speaker: "caller" | "user"; text: string };
 type Signal = { name: string; evidence: string };
 type Analysis = {
   scenarioRiskLevel: "high" | "medium" | "low" | "insufficient_information";
@@ -39,7 +40,7 @@ function Training() {
   const started = useRef<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [selectedChoice, setSelectedChoice] = useState("");
-  const [callerReply, setCallerReply] = useState("");
+  const [conversationTurns, setConversationTurns] = useState<Turn[]>([]);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [phase, setPhase] = useState<"loading" | "choosing" | "replying" | "analyzing" | "complete" | "error">("loading");
   const [error, setError] = useState("");
@@ -51,7 +52,7 @@ function Training() {
     setError("");
     setSession(null);
     setSelectedChoice("");
-    setCallerReply("");
+    setConversationTurns([]);
     setAnalysis(null);
     localStorage.removeItem("goodshield-ai-analysis");
     try {
@@ -61,8 +62,8 @@ function Training() {
       });
       const payload = await readPayload(response);
       setSession(payload.session as Session);
+      setConversationTurns([{ speaker: "caller", text: (payload.session as Session).opening }]);
       setSelectedChoice("");
-      setCallerReply("");
       setAnalysis(null);
       setPhase("choosing");
     } catch (cause) {
@@ -80,15 +81,10 @@ function Training() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scenario.slug]);
 
-  async function evaluate(selected: string, reply: string, earnedRewards: string[] = rewardIds) {
+  async function evaluate(turns: Turn[], selected: string, earnedRewards: string[] = rewardIds) {
     if (!session) return;
     setPhase("analyzing");
     setError("");
-    const turns = [
-      { speaker: "caller", text: session.opening },
-      { speaker: "user", text: selected },
-      { speaker: "caller", text: reply },
-    ];
     try {
       const response = await fetch("/api/risk-assessment", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -131,20 +127,33 @@ function Training() {
 
   async function chooseAnswer(choice: string) {
     if (!session) return;
+    const lastTurn = conversationTurns.at(-1);
+    const retryingSameAnswer = phase === "error" && errorStage === "reply" && lastTurn?.speaker === "user" && lastTurn.text === choice;
+    const turnsBeforeAnswer = retryingSameAnswer ? conversationTurns.slice(0, -1) : conversationTurns;
+    const round = turnsBeforeAnswer.filter((turn) => turn.speaker === "user").length + 1;
+    const turnsWithAnswer: Turn[] = [...turnsBeforeAnswer, { speaker: "user", text: choice }];
     setSelectedChoice(choice);
+    setConversationTurns(turnsWithAnswer);
     setPhase("replying");
     setError("");
     try {
       const response = await fetch("/api/training-session", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reply", scenarioSlug: scenario.slug, conversationType: session.conversationType, opening: session.opening, choices: session.choices, selectedChoice: choice }),
+        body: JSON.stringify({ action: "reply", scenarioSlug: scenario.slug, conversationType: session.conversationType, opening: session.opening, choices: session.choices, selectedChoice: choice, turns: turnsWithAnswer, round }),
       });
       const payload = await readPayload(response);
       const reply = payload.reply as string;
-      setCallerReply(reply);
-      const rewards = completeScenario(scenario.slug).map((reward) => reward.id);
-      setRewardIds(rewards);
-      await evaluate(choice, reply, rewards);
+      const completedTurns: Turn[] = [...turnsWithAnswer, { speaker: "caller", text: reply }];
+      setConversationTurns(completedTurns);
+      if (round >= 3) {
+        const rewards = completeScenario(scenario.slug).map((reward) => reward.id);
+        setRewardIds(rewards);
+        await evaluate(completedTurns, choice, rewards);
+      } else {
+        setSession((current) => current ? { ...current, choices: payload.choices as string[] } : current);
+        setSelectedChoice("");
+        setPhase("choosing");
+      }
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "無法取得來話方的回覆。";
       setError(message);
@@ -154,21 +163,20 @@ function Training() {
   }
 
   const riskLabels = { high: "高風險", medium: "中度風險", low: "低風險", insufficient_information: "資訊不足" };
+  const completedRounds = conversationTurns.filter((turn) => turn.speaker === "user").length;
   const phaseLabels = { loading: "正在產生本次來話", choosing: "閱讀來話並選擇回應", replying: "來話方正在回覆", analyzing: "AI 正在分析對話與評分", complete: "對話分析完成", error: "需要重新處理" };
-  const progressPercent = phase === "complete" ? 100 : phase === "analyzing" ? 88 : phase === "replying" ? 65 : phase === "choosing" ? 40 : phase === "loading" ? 15 : errorStage === "analysis" ? 88 : errorStage === "reply" ? 65 : 15;
+  const progressPercent = phase === "complete" ? 100 : phase === "analyzing" ? 90 : phase === "loading" ? 10 : Math.min(80, 25 + completedRounds * 20);
 
   return <AppShell current="訓練情境"><div className="inner game-training">
     <header className="training-mission-bar"><div><span>情境主題</span><strong>{scenario.title}</strong></div><div className="calm-meter"><span>練習進度</span><i><b style={{ width: `${progressPercent}%` }}/></i><strong>{phase === "complete" ? "完成" : "進行中"}</strong></div><button type="button" onClick={() => router.push("/scenarios")}>離開任務</button></header>
 
-    <div className="training-game-layout"><aside className="mission-side"><div className="shield-status"><span><ShieldIcon/></span><div><small>本次流程</small><strong>{phaseLabels[phase]}</strong></div></div><ol>{["AI 產生新來話", "選擇你的回答", "來話方依回答反應", "AI 分析與評分"].map((label, index) => { const complete = phase === "complete" || (phase === "analyzing" && index < 3) || (phase === "replying" && index < 2) || (phase === "choosing" && index === 0); return <li className={complete ? "done" : ""} key={label}><span>{complete ? "✓" : index + 1}</span>{label}</li>; })}</ol><p className="training-mode-note">每次練習會產生不同的虛構對話，可能是詐騙，也可能是正常訊息。</p></aside>
+    <div className="training-game-layout"><aside className="mission-side"><div className="shield-status"><span><ShieldIcon/></span><div><small>本次流程</small><strong>{phaseLabels[phase]}</strong></div></div><ol>{["AI 產生新來話", "完成三輪回答", "來話方依回答反應", "AI 分析與評分"].map((label, index) => { const complete = phase === "complete" || (phase === "analyzing" && index < 3) || (phase === "replying" && index < 2) || (phase === "choosing" && index === 0); return <li className={complete ? "done" : ""} key={label}><span>{complete ? "✓" : index + 1}</span>{label}</li>; })}</ol><p className="training-mode-note">完成三輪並送出分析後，才會計入守護貓進度；重複同一情境不會重複計算。</p></aside>
 
-      <section className="chat game-chat" aria-busy={phase === "analyzing"}><div className="chat-head"><div><strong>AI 情境對話</strong><span>主題：{scenario.title} · 虛構安全練習</span></div><span>{phaseLabels[phase]}</span></div>
+      <section className="chat game-chat" aria-busy={phase === "analyzing"}><div className="chat-head"><div><strong>AI 情境對話</strong><span>主題：{scenario.title} · 虛構安全練習</span></div><span>{phase === "choosing" || phase === "replying" ? `第 ${Math.min(3, completedRounds + (phase === "replying" ? 1 : 1))} / 3 輪` : phaseLabels[phase]}</span></div>
         <div className="chat-body">
           {phase === "loading" && <p>AI 正在為「{scenario.title}」產生本次來話和四個回應選項…</p>}
-          {session && <><div className="speaker-label"><span>來</span>來話方</div><div className="bubble attacker">{session.opening}</div></>}
-          {phase === "choosing" && session && <div className="generated-choice-list"><strong>你會怎麼回應？</strong>{session.choices.map((choice, index) => <button type="button" key={`${index}-${choice}`} onClick={() => void chooseAnswer(choice)}><span>{String.fromCharCode(65 + index)}</span>{choice}</button>)}</div>}
-          {selectedChoice && <><div className="speaker-label user-label"><span>我</span>你的回答</div><div className="bubble user">{selectedChoice}</div></>}
-          {callerReply && <><div className="speaker-label"><span>來</span>來話方的回覆</div><div className="bubble attacker">{callerReply}</div></>}
+          {conversationTurns.map((turn, index) => <div className="conversation-turn" key={`${index}-${turn.speaker}`}><div className={`speaker-label ${turn.speaker === "user" ? "user-label" : ""}`}><span>{turn.speaker === "user" ? "我" : "來"}</span>{turn.speaker === "user" ? "你的回答" : index === 0 ? "來話方" : "來話方的回覆"}</div><div className={`bubble ${turn.speaker === "user" ? "user" : "attacker"}`}>{turn.text}</div></div>)}
+          {phase === "choosing" && session && <div className="generated-choice-list"><strong>第 {completedRounds + 1} 輪：你會怎麼回應？</strong>{session.choices.map((choice, index) => <button type="button" key={`${index}-${choice}`} onClick={() => void chooseAnswer(choice)}><span>{String.fromCharCode(65 + index)}</span>{choice}</button>)}</div>}
           {phase === "analyzing" && <section className="analysis-progress" role="status" aria-live="polite" aria-label="AI 正在分析本次對話">
             <div className="analysis-progress-heading"><span className="analysis-cat" aria-hidden="true"><Image className="analysis-cat-frame" src="/brand/waiting-cat-1.png" alt="" width={72} height={72}/><Image className="analysis-cat-frame" src="/brand/waiting-cat-2.png" alt="" width={72} height={72}/><Image className="analysis-cat-frame" src="/brand/waiting-cat-3.png" alt="" width={72} height={72}/></span><div><strong>對話已結束，AI 正在分析</strong><p>請稍候，系統正在整理這段練習的風險與回饋。</p></div></div>
             <div className="analysis-progress-track" role="progressbar" aria-label="AI 分析進度" aria-valuetext="分析進行中"><span className="analysis-progress-fill"/><span className="analysis-fish" aria-hidden="true"><Image src="/brand/loading-fish.png" alt="" width={84} height={49}/></span></div>
@@ -183,7 +191,7 @@ function Training() {
             <small>此為 AI 對本次模擬對話的練習評分，不代表真實防詐能力或正式案件判定。</small>
           </div>}
         </div>
-        {phase === "error" && <div className="decision"><p role="alert">{error}</p>{errorStage === "start" ? <button className="button button-primary" onClick={() => void startSession()}>重新產生情境</button> : errorStage === "reply" ? <button className="button button-primary" onClick={() => void chooseAnswer(selectedChoice)}>重試來話回覆</button> : <button className="button button-primary" onClick={() => callerReply && void evaluate(selectedChoice, callerReply)}>重試分析與評分</button>}</div>}
+        {phase === "error" && <div className="decision"><p role="alert">{error}</p>{errorStage === "start" ? <button className="button button-primary" onClick={() => void startSession()}>重新產生情境</button> : errorStage === "reply" ? <button className="button button-primary" onClick={() => void chooseAnswer(selectedChoice)}>重試來話回覆</button> : <button className="button button-primary" onClick={() => void evaluate(conversationTurns, selectedChoice)}>重試分析與評分</button>}</div>}
         {phase === "complete" && <div className="decision"><button className="button button-primary" onClick={() => router.push("/report")}>查看完整任務報告</button></div>}
       </section>
     </div>

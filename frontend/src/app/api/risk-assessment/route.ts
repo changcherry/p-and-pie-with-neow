@@ -78,7 +78,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "請求內容格式錯誤。" }, { status: 400 });
   }
   const turns = body.turns;
-  if (typeof body.scenarioTitle !== "string" || body.scenarioTitle.length > 100 || typeof body.selectedChoice !== "string" || body.selectedChoice.length > 200 || !Array.isArray(turns) || turns.length < 2 || turns.length > 4 || !turns.every((turn) => turn && (turn.speaker === "caller" || turn.speaker === "user") && typeof turn.text === "string" && turn.text.length <= 400)) {
+  if (typeof body.scenarioTitle !== "string" || body.scenarioTitle.length > 100 || typeof body.selectedChoice !== "string" || body.selectedChoice.length > 200 || !Array.isArray(turns) || turns.length < 2 || turns.length > 8 || !turns.every((turn) => turn && (turn.speaker === "caller" || turn.speaker === "user") && typeof turn.text === "string" && turn.text.length <= 400)) {
     return Response.json({ error: "對話資料不完整或格式不正確。" }, { status: 400 });
   }
 
