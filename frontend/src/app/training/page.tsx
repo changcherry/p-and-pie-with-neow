@@ -46,6 +46,39 @@ function Training() {
   const [error, setError] = useState("");
   const [errorStage, setErrorStage] = useState<ErrorStage>("start");
   const [rewardIds, setRewardIds] = useState<string[]>([]);
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const [speakingText, setSpeakingText] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSpeechSupported("speechSynthesis" in window && "SpeechSynthesisUtterance" in window), 0);
+    return () => {
+      window.clearTimeout(timer);
+      window.speechSynthesis?.cancel();
+    };
+  }, []);
+
+  function stopSpeech() {
+    window.speechSynthesis?.cancel();
+    setSpeakingText("");
+  }
+
+  function toggleSpeech(text: string) {
+    if (!speechSupported) return;
+    if (speakingText === text) {
+      stopSpeech();
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "zh-TW";
+    utterance.rate = 0.9;
+    const voices = window.speechSynthesis.getVoices();
+    utterance.voice = voices.find((voice) => voice.lang.toLowerCase() === "zh-tw") ?? voices.find((voice) => voice.lang.toLowerCase().startsWith("zh")) ?? null;
+    utterance.onend = () => setSpeakingText("");
+    utterance.onerror = () => setSpeakingText("");
+    setSpeakingText(text);
+    window.speechSynthesis.speak(utterance);
+  }
 
   async function startSession() {
     setPhase("loading");
@@ -175,9 +208,9 @@ function Training() {
       <section className="chat game-chat" aria-busy={phase === "analyzing"}><div className="chat-head"><div><strong>AI 情境對話</strong><span>主題：{scenario.title} · 虛構安全練習</span></div><span>{phase === "choosing" || phase === "replying" ? `第 ${Math.min(3, completedRounds + (phase === "replying" ? 1 : 1))} / 3 輪` : phaseLabels[phase]}</span></div>
         <div className="chat-body">
           {phase === "loading" && <p>AI 正在為「{scenario.title}」產生本次來話和四個回應選項…</p>}
-          {conversationTurns.map((turn, index) => <div className="conversation-turn" key={`${index}-${turn.speaker}`}><div className={`speaker-label ${turn.speaker === "user" ? "user-label" : ""}`}><span>{turn.speaker === "user" ? "我" : "來"}</span>{turn.speaker === "user" ? "你的回答" : index === 0 ? "來話方" : "來話方的回覆"}</div><div className={`bubble ${turn.speaker === "user" ? "user" : "attacker"}`}>{turn.text}</div></div>)}
+          {conversationTurns.map((turn, index) => <div className="conversation-turn" key={`${index}-${turn.speaker}`}><div className={`speaker-label ${turn.speaker === "user" ? "user-label" : ""}`}><span>{turn.speaker === "user" ? "我" : "來"}</span>{turn.speaker === "user" ? "你的回答" : index === 0 ? "來話方" : "來話方的回覆"}{turn.speaker === "caller" && speechSupported && <button className="speech-inline" type="button" onClick={() => toggleSpeech(turn.text)} aria-label={`${speakingText === turn.text ? "停止" : "朗讀"}這則來話`}>{speakingText === turn.text ? "停止" : "朗讀"}</button>}</div><div className={`bubble ${turn.speaker === "user" ? "user" : "attacker"}`}>{turn.text}</div></div>)}
           {phase === "replying" && <div className="conversation-turn typing-turn"><div className="speaker-label"><span>來</span>來話方正在輸入</div><div className="bubble attacker typing-bubble" role="status" aria-live="polite" aria-label="來話方正在輸入"><span aria-hidden="true"/><span aria-hidden="true"/><span aria-hidden="true"/></div></div>}
-          {phase === "choosing" && session && <div className="generated-choice-list"><strong>第 {completedRounds + 1} 輪：你會怎麼回應？</strong>{session.choices.map((choice, index) => <button type="button" key={`${index}-${choice}`} onClick={() => void chooseAnswer(choice)}><span>{String.fromCharCode(65 + index)}</span>{choice}</button>)}</div>}
+          {phase === "choosing" && session && <div className="generated-choice-list"><strong>第 {completedRounds + 1} 輪：你會怎麼回應？</strong>{session.choices.map((choice, index) => <div className="choice-row" key={`${index}-${choice}`}><button className="choice-select" type="button" onClick={() => { stopSpeech(); void chooseAnswer(choice); }}><span>{String.fromCharCode(65 + index)}</span>{choice}</button>{speechSupported && <button className="choice-speak" type="button" onClick={() => toggleSpeech(choice)} aria-label={`${speakingText === choice ? "停止" : "朗讀"}選項 ${String.fromCharCode(65 + index)}`}>{speakingText === choice ? "停止" : "朗讀"}</button>}</div>)}</div>}
           {phase === "analyzing" && <section className="analysis-progress" role="status" aria-live="polite" aria-label="AI 正在分析本次對話">
             <div className="analysis-progress-heading"><span className="analysis-cat" aria-hidden="true"><Image className="analysis-cat-frame" src="/brand/waiting-cat-1.png" alt="" width={72} height={72}/><Image className="analysis-cat-frame" src="/brand/waiting-cat-2.png" alt="" width={72} height={72}/><Image className="analysis-cat-frame" src="/brand/waiting-cat-3.png" alt="" width={72} height={72}/></span><div><strong>對話已結束，AI 正在分析</strong><p>請稍候，系統正在整理這段練習的風險與回饋。</p></div></div>
             <div className="analysis-progress-track" role="progressbar" aria-label="AI 分析進度" aria-valuetext="分析進行中"><span className="analysis-progress-fill"/><span className="analysis-fish" aria-hidden="true"><Image src="/brand/loading-fish.png" alt="" width={84} height={49}/></span></div>
