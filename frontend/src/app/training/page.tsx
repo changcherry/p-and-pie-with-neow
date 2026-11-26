@@ -8,6 +8,7 @@ import { ShieldIcon } from "@/components/icons";
 import { scenarios } from "@/lib/demo-data";
 import { completeScenario } from "@/lib/cat-progress";
 import { skillDimensions, type SkillScores } from "@/lib/training-score";
+import { appendTrainingHistory } from "@/lib/training-history";
 
 type Session = { scenarioSlug: string; title: string; conversationType: "scam" | "legitimate"; opening: string; choices: string[] };
 type Turn = { speaker: "caller" | "user"; text: string };
@@ -130,7 +131,7 @@ function Training() {
       const safe = result.answerRiskLevel === "low";
       const badge = result.totalScore >= 80 ? "善盾判斷佳" : result.totalScore >= 60 ? "持續練習" : "再次練習";
       localStorage.setItem("goodshield-ai-analysis", JSON.stringify({ status: "complete", analysis: result }));
-      localStorage.setItem("goodshield-result", JSON.stringify({
+      const resultPayload = {
         title: scenario.title,
         safe,
         decisionLabel: selected,
@@ -148,7 +149,9 @@ function Training() {
         answerSignals: result.answerSignals,
         turns,
         catRewards: earnedRewards,
-      }));
+      };
+      localStorage.setItem("goodshield-result", JSON.stringify(resultPayload));
+      appendTrainingHistory({ title: scenario.title, score: result.totalScore, scores: result.dimensionScores, result: resultPayload, analysis: result as unknown as Record<string, unknown> });
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "無法分析這段對話。";
       setError(message);
