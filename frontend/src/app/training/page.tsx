@@ -9,6 +9,7 @@ import { scenarios } from "@/lib/demo-data";
 import { completeScenario } from "@/lib/cat-progress";
 import { skillDimensions, type SkillScores } from "@/lib/training-score";
 import { appendTrainingHistory } from "@/lib/training-history";
+import { speakText, stopSpeech as stopKokoroSpeech } from "@/lib/tts";
 
 type Session = { scenarioSlug: string; title: string; conversationType: "scam" | "legitimate"; opening: string; choices: string[] };
 type Turn = { speaker: "caller" | "user"; text: string };
@@ -50,35 +51,35 @@ function Training() {
   const [speechSupported, setSpeechSupported] = useState(false);
   const [speakingText, setSpeakingText] = useState("");
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => setSpeechSupported("speechSynthesis" in window && "SpeechSynthesisUtterance" in window), 0);
+useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSpeechSupported(true);
+    }, 0);
+
     return () => {
       window.clearTimeout(timer);
-      window.speechSynthesis?.cancel();
+      stopKokoroSpeech();
     };
   }, []);
 
   function stopSpeech() {
-    window.speechSynthesis?.cancel();
+    stopKokoroSpeech();
     setSpeakingText("");
   }
 
   function toggleSpeech(text: string) {
     if (!speechSupported) return;
+
     if (speakingText === text) {
       stopSpeech();
       return;
     }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "zh-TW";
-    utterance.rate = 0.9;
-    const voices = window.speechSynthesis.getVoices();
-    utterance.voice = voices.find((voice) => voice.lang.toLowerCase() === "zh-tw") ?? voices.find((voice) => voice.lang.toLowerCase().startsWith("zh")) ?? null;
-    utterance.onend = () => setSpeakingText("");
-    utterance.onerror = () => setSpeakingText("");
+
+    stopSpeech();
     setSpeakingText(text);
-    window.speechSynthesis.speak(utterance);
+    void speakText(text, () => {
+      setSpeakingText("");
+    });
   }
 
   async function startSession() {
@@ -97,6 +98,7 @@ function Training() {
       const payload = await readPayload(response);
       setSession(payload.session as Session);
       setConversationTurns([{ speaker: "caller", text: (payload.session as Session).opening }]);
+      void speakText((payload.session as Session).opening);
       setSelectedChoice("");
       setAnalysis(null);
       setPhase("choosing");
@@ -181,6 +183,7 @@ function Training() {
       const reply = payload.reply as string;
       const completedTurns: Turn[] = [...turnsWithAnswer, { speaker: "caller", text: reply }];
       setConversationTurns(completedTurns);
+      void speakText(reply);
       if (round >= 3) {
         const rewards = completeScenario(scenario.slug).map((reward) => reward.id);
         setRewardIds(rewards);
